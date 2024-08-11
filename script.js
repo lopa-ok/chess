@@ -22,6 +22,32 @@ let canCastle = { 'white': { 'kingSide': true, 'queenSide': true }, 'black': { '
 let enPassantTarget = null;
 let moveHistory = [];
 let isGameOver = false;
+let whiteTime = 0;
+let blackTime = 0;
+let timerInterval;
+
+function startTimer() {
+    timerInterval = setInterval(() => {
+        if (turn === 'white') {
+            whiteTime++;
+        } else {
+            blackTime++;
+        }
+        updateTimerDisplay();
+    }, 1000);
+}
+
+function updateTimerDisplay() {
+    document.getElementById('whiteTimer').innerText = formatTime(whiteTime);
+    document.getElementById('blackTimer').innerText = formatTime(blackTime);
+}
+
+function formatTime(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    seconds = seconds % 60;
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+}
+
 
 function renderBoard() {
     chessboard.innerHTML = '';
@@ -336,6 +362,38 @@ function isStalemate() {
 
     return true;
 }
+function highlightMoves(row, col) {
+    const piece = board[row][col];
+    const possibleMoves = getPossibleMoves(row, col, piece);
+    
+    document.querySelectorAll('.square').forEach(square => {
+        square.classList.remove('highlight');
+    });
+    
+    possibleMoves.forEach(move => {
+        const square = document.querySelector(`[data-row='${move.row}'][data-col='${move.col}']`);
+        square.classList.add('highlight');
+    });
+}
+
+function getPossibleMoves(row, col, piece) {
+    const moves = [];
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            if (isValidMove(row, col, i, j)) {
+                moves.push({ row: i, col: j });
+            }
+        }
+    }
+    return moves;
+}
+
+function displayMoveNotification(fromRow, fromCol, toRow, toCol) {
+const notification = document.getElementById('moveNotification');
+const piece = board[toRow][toCol];
+notification.innerText = `Moved ${pieces[piece]} from (${fromRow}, ${fromCol}) to (${toRow}, ${toCol})`;
+}
+
 
 function displayGameOverMessage() {
     const message = isCheckmate() ? (turn === 'white' ? 'Black wins by checkmate!' : 'White wins by checkmate!') : 'Game ends in a draw (stalemate).';
