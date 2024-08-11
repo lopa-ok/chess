@@ -20,6 +20,8 @@ let turn = 'white';
 let kingPositions = { 'white': [7, 4], 'black': [0, 4] };
 let canCastle = { 'white': { 'kingSide': true, 'queenSide': true }, 'black': { 'kingSide': true, 'queenSide': true } };
 let enPassantTarget = null;
+let moveHistory = [];
+let isGameOver = false;
 
 function renderBoard() {
     chessboard.innerHTML = '';
@@ -37,9 +39,15 @@ function renderBoard() {
             chessboard.appendChild(square);
         }
     }
+
+    if (isGameOver) {
+        displayGameOverMessage();
+    }
 }
 
 function handleClick(row, col) {
+    if (isGameOver) return;
+
     if (selectedPiece) {
         movePiece(row, col);
     } else {
@@ -58,6 +66,7 @@ function movePiece(row, col) {
     if (isValidMove(selectedPiece.row, selectedPiece.col, row, col)) {
         const [fromRow, fromCol] = [selectedPiece.row, selectedPiece.col];
         const piece = board[fromRow][fromCol];
+        const capturedPiece = board[row][col];
 
         // Handle special moves
         if (piece.toLowerCase() === 'k' && Math.abs(fromCol - col) === 2) {
@@ -93,9 +102,9 @@ function movePiece(row, col) {
 
         // Pawn promotion
         if (piece === 'P' && row === 0) {
-            board[row][col] = 'Q'; // Promote to queen
+            promotePawn(row, col);
         } else if (piece === 'p' && row === 7) {
-            board[row][col] = 'q'; // Promote to queen
+            promotePawn(row, col);
         }
 
         // Handle en passant target
@@ -105,12 +114,29 @@ function movePiece(row, col) {
             enPassantTarget = null;
         }
 
-        selectedPiece = null;
-        turn = turn === 'white' ? 'black' : 'white';
-        renderBoard();
+        // Save the move to history
+        moveHistory.push({ fromRow, fromCol, toRow, toCol, capturedPiece });
+
+        // Check for checkmate or stalemate
+        if (isCheckmate()) {
+            isGameOver = true;
+            renderBoard();
+        } else if (isStalemate()) {
+            isGameOver = true;
+            renderBoard();
+        } else {
+            turn = turn === 'white' ? 'black' : 'white';
+            renderBoard();
+        }
     } else {
         selectedPiece = null;
     }
+}
+
+function promotePawn(row, col) {
+    const promotionChoice = prompt("Promote to (Q/R/B/N):");
+    const promotionPiece = { 'Q': 'Q', 'R': 'R', 'B': 'B', 'N': 'N' }[promotionChoice.toUpperCase()] || 'Q';
+    board[row][col] = turn === 'white' ? promotionPiece : promotionPiece.toLowerCase();
 }
 
 function isValidMove(fromRow, fromCol, toRow, toCol) {
@@ -170,15 +196,13 @@ function validatePawnMove(piece, fromRow, fromCol, toRow, toCol, rowDiff, colDif
     if (colDiff === 0) { // Moving forward
         if (rowDiff === direction && board[toRow][toCol] === '') {
             return true;
-        } else if (rowDiff === 2 * direction && fromRow === startRow && board[toRow][toCol] === '' && board[fromRow + direction][toCol] === '') {
+        } else if (rowDiff === 2 * direction && fromRow === startRow && board[toRow][toCol] === '' && board[fromRow + direction][fromCol] === '') {
             return true;
         }
-    } else if (Math.abs(colDiff) === 1 && rowDiff === direction) { // Capturing
-        if (board[toRow][toCol] !== '' && ((piece === 'P' && board[toRow][toCol] === board[toRow][toCol].toLowerCase()) || (piece === 'p' && board[toRow][toCol] === board[toRow][toCol].toUpperCase()))) {
-            return true;
-        } else if (enPassantTarget && toRow === enPassantTarget[0] && toCol === enPassantTarget[1]) { // En passant
-            return true;
-        }
+    } else if (Math.abs(colDiff) === 1 && rowDiff === direction && board[toRow][toCol] !== '') { // Capturing
+        return true;
+    } else if (enPassantTarget && toRow === enPassantTarget[0] && toCol === enPassantTarget[1]) { // En passant
+        return true;
     }
 
     return false;
@@ -269,6 +293,86 @@ function isSquareUnderAttack(row, col, tempBoard = board) {
     }
 
     return false;
+}
+
+function isCheckmate() {
+    const [kingRow, kingCol] = kingPositions[turn];
+    if (!isInCheck()) return false;
+
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            if (board[i][j] && ((turn === 'white' && board[i][j] === board[i][j].toUpperCase()) || (turn === 'black' && board[i][j] === board[i][j].toLowerCase()))) {
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        if (isValidMove(i, j, row, col)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+function isStalemate() {
+    const [kingRow, kingCol] = kingPositions[turn];
+    if (isInCheck()) return false;
+
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            if (board[i][j] && ((turn === 'white' && board[i][j] === board[i][j].toUpperCase()) || (turn === 'black' && board[i][j] === board[i][j].toLowerCase()))) {
+                for (let row = 0; row < 8; row++) {
+                    for (let col = 0; col < 8; col++) {
+                        if (isValidMove(i, j, row, col)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+function displayGameOverMessage() {
+    const message = isCheckmate() ? (turn === 'white' ? 'Black wins by checkmate!' : 'White wins by checkmate!') : 'Game ends in a draw (stalemate).';
+    alert(message);
+}
+
+function undoMove() {
+    if (moveHistory.length === 0) return;
+
+    const lastMove = moveHistory.pop();
+    const { fromRow, fromCol, toRow, toCol, capturedPiece } = lastMove;
+    const piece = board[toRow][toCol];
+
+    board[fromRow][fromCol] = piece;
+    board[toRow][toCol] = capturedPiece;
+
+    // Update king position if needed
+    if (piece.toLowerCase() === 'k') {
+        kingPositions[turn] = [fromRow, fromCol];
+    }
+
+    // Revert castling rights
+    if (piece.toLowerCase() === 'r') {
+        if (fromCol === 0) {
+            canCastle[turn].queenSide = true;
+        } else if (fromCol === 7) {
+            canCastle[turn].kingSide = true;
+        }
+    }
+
+    // Handle en passant target revert
+    if (enPassantTarget && enPassantTarget[0] === toRow && enPassantTarget[1] === toCol) {
+        board[toRow][toCol] = '';
+    }
+
+    turn = turn === 'white' ? 'black' : 'white';
+    renderBoard();
 }
 
 renderBoard();
