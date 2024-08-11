@@ -17,6 +17,9 @@ let board = [
 
 let selectedPiece = null;
 let turn = 'white';
+let kingPositions = { 'white': [7, 4], 'black': [0, 4] };
+let canCastle = { 'white': { 'kingSide': true, 'queenSide': true }, 'black': { 'kingSide': true, 'queenSide': true } };
+let enPassantTarget = null;
 
 function renderBoard() {
     chessboard.innerHTML = '';
@@ -53,8 +56,55 @@ function selectPiece(row, col) {
 
 function movePiece(row, col) {
     if (isValidMove(selectedPiece.row, selectedPiece.col, row, col)) {
-        board[row][col] = board[selectedPiece.row][selectedPiece.col];
-        board[selectedPiece.row][selectedPiece.col] = '';
+        const [fromRow, fromCol] = [selectedPiece.row, selectedPiece.col];
+        const piece = board[fromRow][fromCol];
+
+        // Handle special moves
+        if (piece.toLowerCase() === 'k' && Math.abs(fromCol - col) === 2) {
+            // Castling
+            if (col === 6) { // King-side castling
+                board[fromRow][5] = board[fromRow][7];
+                board[fromRow][7] = '';
+            } else if (col === 2) { // Queen-side castling
+                board[fromRow][3] = board[fromRow][0];
+                board[fromRow][0] = '';
+            }
+        } else if (piece.toLowerCase() === 'p' && col !== fromCol && board[row][col] === '') {
+            // En Passant
+            board[fromRow][col] = '';
+        }
+
+        // Move the piece
+        board[row][col] = board[fromRow][fromCol];
+        board[fromRow][fromCol] = '';
+
+        // Update king position
+        if (piece.toLowerCase() === 'k') {
+            kingPositions[turn] = [row, col];
+            canCastle[turn].kingSide = false;
+            canCastle[turn].queenSide = false;
+        } else if (piece.toLowerCase() === 'r') {
+            if (fromCol === 0) {
+                canCastle[turn].queenSide = false;
+            } else if (fromCol === 7) {
+                canCastle[turn].kingSide = false;
+            }
+        }
+
+        // Pawn promotion
+        if (piece === 'P' && row === 0) {
+            board[row][col] = 'Q'; // Promote to queen
+        } else if (piece === 'p' && row === 7) {
+            board[row][col] = 'q'; // Promote to queen
+        }
+
+        // Handle en passant target
+        if (piece.toLowerCase() === 'p' && Math.abs(row - fromRow) === 2) {
+            enPassantTarget = [row - Math.sign(row - fromRow), col];
+        } else {
+            enPassantTarget = null;
+        }
+
         selectedPiece = null;
         turn = turn === 'white' ? 'black' : 'white';
         renderBoard();
@@ -66,41 +116,57 @@ function movePiece(row, col) {
 function isValidMove(fromRow, fromCol, toRow, toCol) {
     const piece = board[fromRow][fromCol];
     const target = board[toRow][toCol];
-    
+
     // Ensure the move is within the board limits
     if (toRow < 0 || toRow > 7 || toCol < 0 || toCol > 7) {
         return false;
     }
-    
+
     // Ensure the target square is empty or occupied by an opponent's piece
     if (target !== '' && ((piece === piece.toUpperCase() && target === target.toUpperCase()) || (piece === piece.toLowerCase() && target === target.toLowerCase()))) {
         return false;
     }
-    
+
     const rowDiff = toRow - fromRow;
     const colDiff = toCol - fromCol;
 
+    // Check for specific piece movement
+    let valid = false;
     switch (piece.toLowerCase()) {
         case 'p': // Pawn
-            return validatePawnMove(piece, fromRow, fromCol, toRow, toCol, rowDiff, colDiff);
+            valid = validatePawnMove(piece, fromRow, fromCol, toRow, toCol, rowDiff, colDiff);
+            break;
         case 'r': // Rook
-            return validateRookMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff);
+            valid = validateRookMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff);
+            break;
         case 'n': // Knight
-            return validateKnightMove(rowDiff, colDiff);
+            valid = validateKnightMove(rowDiff, colDiff);
+            break;
         case 'b': // Bishop
-            return validateBishopMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff);
+            valid = validateBishopMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff);
+            break;
         case 'q': // Queen
-            return validateQueenMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff);
+            valid = validateQueenMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff);
+            break;
         case 'k': // King
-            return validateKingMove(rowDiff, colDiff);
+            valid = validateKingMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff);
+            break;
         default:
-            return false;
+            valid = false;
     }
+
+    // Prevent moving into check
+    if (valid && !isInCheckAfterMove(fromRow, fromCol, toRow, toCol)) {
+        return true;
+    }
+
+    return false;
 }
 
 function validatePawnMove(piece, fromRow, fromCol, toRow, toCol, rowDiff, colDiff) {
     const direction = piece === 'P' ? -1 : 1;
     const startRow = piece === 'P' ? 6 : 1;
+
     if (colDiff === 0) { // Moving forward
         if (rowDiff === direction && board[toRow][toCol] === '') {
             return true;
@@ -110,14 +176,22 @@ function validatePawnMove(piece, fromRow, fromCol, toRow, toCol, rowDiff, colDif
     } else if (Math.abs(colDiff) === 1 && rowDiff === direction) { // Capturing
         if (board[toRow][toCol] !== '' && ((piece === 'P' && board[toRow][toCol] === board[toRow][toCol].toLowerCase()) || (piece === 'p' && board[toRow][toCol] === board[toRow][toCol].toUpperCase()))) {
             return true;
+        } else if (enPassantTarget && toRow === enPassantTarget[0] && toCol === enPassantTarget[1]) { // En passant
+            return true;
         }
     }
+
     return false;
 }
 
 function validateRookMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff) {
     if (rowDiff === 0 || colDiff === 0) { // Moving in a straight line
-        return isPathClear(fromRow, fromCol, toRow, toCol);
+        for (let i = 1; i < Math.abs(rowDiff || colDiff); i++) {
+            if (board[fromRow + i * Math.sign(rowDiff)][fromCol + i * Math.sign(colDiff)] !== '') {
+                return false;
+            }
+        }
+        return true;
     }
     return false;
 }
@@ -128,7 +202,12 @@ function validateKnightMove(rowDiff, colDiff) {
 
 function validateBishopMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff) {
     if (Math.abs(rowDiff) === Math.abs(colDiff)) { // Moving diagonally
-        return isPathClear(fromRow, fromCol, toRow, toCol);
+        for (let i = 1; i < Math.abs(rowDiff); i++) {
+            if (board[fromRow + i * Math.sign(rowDiff)][fromCol + i * Math.sign(colDiff)] !== '') {
+                return false;
+            }
+        }
+        return true;
     }
     return false;
 }
@@ -137,23 +216,59 @@ function validateQueenMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff) {
     return validateRookMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff) || validateBishopMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff);
 }
 
-function validateKingMove(rowDiff, colDiff) {
-    return Math.abs(rowDiff) <= 1 && Math.abs(colDiff) <= 1; // Moving one square in any direction
+function validateKingMove(fromRow, fromCol, toRow, toCol, rowDiff, colDiff) {
+    if (Math.abs(rowDiff) <= 1 && Math.abs(colDiff) <= 1) { // Moving one square in any direction
+        return true;
+    }
+
+    // Castling
+    if (fromRow === toRow && Math.abs(colDiff) === 2) {
+        if (colDiff === 2 && canCastle[turn].kingSide) { // King-side castling
+            return board[fromRow][5] === '' && board[fromRow][6] === '' && !isInCheck() && !isInCheckAfterMove(fromRow, fromCol, fromRow, 5) && !isInCheckAfterMove(fromRow, fromCol, toRow, toCol);
+        } else if (colDiff === -2 && canCastle[turn].queenSide) { // Queen-side castling
+            return board[fromRow][3] === '' && board[fromRow][2] === '' && board[fromRow][1] === '' && !isInCheck() && !isInCheckAfterMove(fromRow, fromCol, fromRow, 3) && !isInCheckAfterMove(fromRow, fromCol, toRow, toCol);
+        }
+    }
+
+    return false;
 }
 
-function isPathClear(fromRow, fromCol, toRow, toCol) {
-    const rowStep = Math.sign(toRow - fromRow);
-    const colStep = Math.sign(toCol - fromCol);
-    let currentRow = fromRow + rowStep;
-    let currentCol = fromCol + colStep;
-    while (currentRow !== toRow || currentCol !== toCol) {
-        if (board[currentRow][currentCol] !== '') {
-            return false;
-        }
-        currentRow += rowStep;
-        currentCol += colStep;
+function isInCheck() {
+    const [kingRow, kingCol] = kingPositions[turn];
+    return isSquareUnderAttack(kingRow, kingCol);
+}
+
+function isInCheckAfterMove(fromRow, fromCol, toRow, toCol) {
+    const tempBoard = board.map(row => row.slice());
+    const tempKingPositions = { ...kingPositions };
+
+    const piece = tempBoard[fromRow][fromCol];
+    tempBoard[toRow][toCol] = piece;
+    tempBoard[fromRow][fromCol] = '';
+
+    if (piece.toLowerCase() === 'k') {
+        tempKingPositions[turn] = [toRow, toCol];
     }
-    return true;
+
+    const [kingRow, kingCol] = tempKingPositions[turn];
+    return isSquareUnderAttack(kingRow, kingCol, tempBoard);
+}
+
+function isSquareUnderAttack(row, col, tempBoard = board) {
+    const opponent = turn === 'white' ? 'black' : 'white';
+
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            const piece = tempBoard[i][j];
+            if (piece && ((opponent === 'white' && piece === piece.toUpperCase()) || (opponent === 'black' && piece === piece.toLowerCase()))) {
+                if (isValidMove(i, j, row, col)) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 renderBoard();
